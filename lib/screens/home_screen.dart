@@ -5,6 +5,7 @@ import 'package:chat_application/widgets/drawer.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,14 +19,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   String? _username;
   String? _email;
-  List<Map<String, dynamic>> _users = [];
+  String _searchQuery = '';
   List<Map<String, dynamic>> _filteredUsers = [];
+  List<Map<String, dynamic>> _filteredGroups = [];
 
   @override
   void initState() {
     super.initState();
     _fetchUsername();
-    _fetchUsers();
     WidgetsBinding.instance.addObserver(this);
     setStatus('Online');
   }
@@ -52,8 +53,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final userDoc = await _firestore.collection('users').doc(user.uid).get();
         if (userDoc.exists) {
           setState(() {
-            _username = userDoc.data()?['name'];
-            _email = userDoc.data()?['email'];
+            _username = userDoc.data()?['name'] ?? 'Unknown User';
+            _email = userDoc.data()?['email'] ?? 'No email provided';
           });
         }
       } catch (e) {
@@ -62,46 +63,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _fetchUsers() async {
-    final user = _auth.currentUser;
-    if (user != null) {
-      try {
-        final usersSnapshot = await _firestore.collection('users').get();
-        final users = usersSnapshot.docs
-            .where((doc) => doc.id != user.uid)
-            .map((doc) => {
-          'uid': doc.id,
-          'name': doc.data()['name'],
-          'email': doc.data()['email'],
-          'status': doc.data()['status'],
-        })
-            .toList();
-
-        setState(() {
-          _users = users;
-          _filteredUsers = users;
-        });
-      } catch (e) {
-        print('Error fetching users: $e');
-      }
-    }
-  }
-
-  void _filterUsers(String query) {
-    setState(() {
-      _filteredUsers = _users.where((user) {
-        return user['name'].toLowerCase().contains(query.toLowerCase());
-      }).toList();
-    });
-  }
-
   String _generateChatId(String uid1, String uid2) {
     List<String> ids = [uid1, uid2];
     ids.sort();
     return ids.join('_');
   }
 
-  void _navigateToChatScreen(String chatId, String otherUserName, String status,String uuid) {
+  void _navigateToChatScreen(String chatId, String otherUserName, String status, String uuid) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -127,8 +95,53 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  String _formatTimestamp(DateTime timestamp) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final twoDaysAgo = today.subtract(const Duration(days: 2));
+
+    if (timestamp.isAfter(today)) {
+      return DateFormat('h:mm a').format(timestamp);
+    } else if (timestamp.isAfter(yesterday)) {
+      return 'Yesterday';
+    } else if (timestamp.isAfter(twoDaysAgo)) {
+      return DateFormat('EEEE').format(timestamp);
+    } else {
+      return DateFormat('MMM d, yyyy').format(timestamp);
+    }
+  }
+
+
+  void _filterUsers(String query) {
+    setState(() {
+      _searchQuery = query;
+      _filteredUsers = _searchQuery.isEmpty
+          ? []
+          : _filteredUsers.where((user) {
+        final nameLower = user['name'].toString().toLowerCase();
+        final queryLower = _searchQuery.toLowerCase();
+        return nameLower.contains(queryLower);
+      }).toList();
+    });
+  }
+
+  void _filterGroups(String query) {
+    setState(() {
+      _searchQuery = query;
+      _filteredGroups = _searchQuery.isEmpty
+          ? []
+          : _filteredGroups.where((group) {
+        final groupNameLower = group['groupName'].toString().toLowerCase();
+        final queryLower = _searchQuery.toLowerCase();
+        return groupNameLower.contains(queryLower);
+      }).toList();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final currentUserName = _username;
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -146,107 +159,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               style: TextStyle(color: Colors.white),
             ),
           ]),
-
         ),
         drawer: _username != null
             ? MyDrawer(currentUser: _username!, email: _email!)
             : const MyDrawer(currentUser: 'Loading...', email: 'Loading...'),
         body: TabBarView(
           children: [
+            // Chats Tab
             Column(
               children: [
                 Padding(
                   padding: const EdgeInsets.all(8.0),
-                  child: TextField(
-                    decoration: const InputDecoration(
-                      hintText: 'Search...',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.search),
+                  child: Container(
+                    height: 40,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(40),
+                      color: Colors.grey[100],
                     ),
-                    onChanged: _filterUsers,
-                  ),
-                ),
-                Expanded(
-                  child: _filteredUsers.isNotEmpty
-                      ? ListView.builder(
-                    itemCount: _filteredUsers.length,
-                    itemBuilder: (context, index) {
-                      final user = _filteredUsers[index];
-                      return Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(8),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.grey.withOpacity(0.2),
-                                spreadRadius: 2,
-                                blurRadius: 5,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.all(12),
-                            leading: CircleAvatar(
-                              backgroundColor: Colors.grey[600],
-                              child: Text(
-                                user['name'][0].toUpperCase(),
-                                style: const TextStyle(color: Colors.white),
-                              ),
-                            ),
-                            title: Text(
-                              user['name'] ?? "Null",
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: Text(user['email']),
-                            trailing: Text(
-                              user['status'],
-                              style: TextStyle(
-                                color: user['status'] == 'Online'
-                                    ? Colors.green
-                                    : Colors.red,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            onTap: () {
-                              final currentUserUid = _auth.currentUser!.uid;
-                              final otherUserUid = user['uid'];
-                              final chatId = _generateChatId(
-                                  currentUserUid, otherUserUid);
-                              _navigateToChatScreen(
-                                  chatId, user['name'], user['status'],user['uid']);
-                            },
-                          ),
-                        ),
-                      );
-                    },
-                  )
-                      : const Center(child: CircularProgressIndicator()),
-                ),
-              ],
-            ),
-            // Groups Tab
-            Column(
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Search...',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.search),
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        hintText: 'Search users...',
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        prefixIcon: Icon(Icons.search),
+                        contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 10), // Adjust padding to align hint text
+                      ),
+                      onChanged: _filterUsers,
                     ),
-                    // onChanged: _filterGroups, // If you want to filter groups
                   ),
                 ),
                 Expanded(
                   child: StreamBuilder<QuerySnapshot>(
-                    stream: _firestore
-                        .collection('groups')
-                        .where('members', arrayContains: _auth.currentUser!.uid)
-                        .snapshots(),
+                    stream: _firestore.collection('users').snapshots(),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return const Center(child: CircularProgressIndicator());
@@ -255,86 +200,299 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         return Center(child: Text('Error: ${snapshot.error}'));
                       }
                       if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                        return const Center(child: Text('No groups to be shown'));
+                        return const Center(child: Text('No users found'));
                       }
-                      final groups = snapshot.data!.docs.map((doc) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        data['id'] = doc.id;
-                        return data;
+
+                      final userDocs = snapshot.data!.docs;
+                      final currentUserUid = _auth.currentUser!.uid;
+
+                      if (_filteredUsers.isEmpty) {
+                        _filteredUsers = userDocs.map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          data['id'] = doc.id;
+                          return data;
+                        }).toList();
+                      }
+
+                      final filteredUsers = _searchQuery.isEmpty
+                          ? _filteredUsers
+                          : _filteredUsers.where((user) {
+                        final nameLower = user['name'].toString().toLowerCase();
+                        final queryLower = _searchQuery.toLowerCase();
+                        return nameLower.contains(queryLower);
                       }).toList();
+
                       return ListView.builder(
-                        itemCount: groups.length,
+                        itemCount: filteredUsers.length,
                         itemBuilder: (context, index) {
-                          final group = groups[index];
-                          return Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.grey[300],
-                                borderRadius: BorderRadius.circular(8),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.grey.withOpacity(0.2),
-                                    spreadRadius: 2,
-                                    blurRadius: 5,
-                                    offset: const Offset(0, 3),
+                          final user = filteredUsers[index];
+                          if (user['id'] == currentUserUid) return const SizedBox.shrink();
+
+                          final chatId = _generateChatId(currentUserUid, user['id']);
+
+                          return StreamBuilder<QuerySnapshot>(
+                            stream: _firestore
+                                .collection('chats')
+                                .doc(chatId)
+                                .collection('messages')
+                                .orderBy('timestamp', descending: true)
+                                .limit(1)
+                                .snapshots(),
+                            builder: (context, messageSnapshot) {
+                              String latestMessage = 'No messages yet';
+                              String senderName = '';
+                              String messageTime = '';
+                              if (messageSnapshot.connectionState == ConnectionState.waiting) {
+                                return const Center(child: CircularProgressIndicator());
+                              }
+                              if (messageSnapshot.hasData && messageSnapshot.data!.docs.isNotEmpty) {
+                                final messageDoc = messageSnapshot.data!.docs.first;
+                                latestMessage = messageDoc['text'] ?? 'No message text';
+                                senderName = (messageDoc['senderName'] == currentUserName) ? 'You: ' : '${messageDoc['senderName']}: ';
+                                final timestamp = (messageDoc['timestamp'] as Timestamp?)?.toDate();
+                                if (timestamp != null) {
+                                  messageTime = _formatTimestamp(timestamp);
+                                }
+                                final messageStatus = messageDoc['status'];
+                              }
+
+                              return Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.grey.withOpacity(0.2),
+                                        spreadRadius: 2,
+                                        blurRadius: 5,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                              child: ListTile(
-                                contentPadding: const EdgeInsets.all(12),
-                                leading: CircleAvatar(
-                                  backgroundColor: Colors.grey[300],
-                                  child: Text(
-                                    group['groupName'][0].toUpperCase(),
-                                    style: const TextStyle(color: Colors.white),
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.all(12),
+                                    leading: CircleAvatar(
+                                      radius: 25,
+                                      backgroundColor: Colors.grey[600],
+                                      child: Text(
+                                        (user['name'] ?? 'U')[0].toUpperCase(),
+                                        style: const TextStyle(color: Colors.white),
+                                      ),
+                                    ),
+                                    title: Row(
+                                      children: [
+                                        Text(
+                                          user['name'] ?? 'Unknown User',
+                                          style: const TextStyle(fontWeight: FontWeight.bold),
+                                        ),
+                                        const Spacer(),
+                                        Icon(Icons.circle,color: (user['status'] ?? 'Offline') == 'Online' ? Colors.green : Colors.red,size: 10,),
+                                        const SizedBox(width: 4.0), // Space between the circle and the status text
+                                        Text(
+                                          user['status'] ?? 'Unknown status',
+                                          style: TextStyle(
+                                            color: (user['status'] ?? 'Offline') == 'Online' ? Colors.green : Colors.red,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const SizedBox(height: 20,),
+                                        Row(
+                                          children: [
+
+                                            Text(
+                                              '$senderName',
+                                              style: const TextStyle(color: Colors.grey),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            Expanded(
+                                              child: Text(
+                                                latestMessage,
+                                                style: const TextStyle(color: Colors.grey),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            Text(
+                                              messageTime,
+                                              style: const TextStyle(color: Colors.grey, fontSize: 12),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    onTap: () => _navigateToChatScreen(
+                                      chatId,
+                                      user['name'] ?? 'Unknown User',
+                                      user['status'] ?? 'Unknown',
+                                      user['id'] ?? 'Unknown',
+                                    ),
                                   ),
-                                ),
-                                title: Text(
-                                  group['groupName'],
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                                subtitle: Text('Members: ${group['members'].length}'),
-                                onTap: () {
-                                  _navigateToGroupChatScreen(group['id'], group['groupName']);
-                                },
-                              ),
-                            ),
+                                );
+                            },
                           );
                         },
                       );
                     },
                   ),
                 ),
+              ],
+            ),
+            // Groups Tab
+            Column(
+              children: [
                 Padding(
-                  padding: const EdgeInsets.only(right: 20),
-                  child: Align(
-                    alignment: Alignment.bottomRight,
-                    child: Column(
-                      children: [
-                        FloatingActionButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (context) => const CreateGroup()),
-                            );
-                          },
-                          child: const Icon(Icons.add),
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Create Group',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ],
+                  padding: const EdgeInsets.all(8.0),
+                  child: TextField(
+                    decoration: const InputDecoration(
+                      hintText: 'Search groups...',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.search),
                     ),
+                    onChanged: _filterGroups,
                   ),
                 ),
-                const SizedBox(height: 20),
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: _firestore.collection('groups').snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (snapshot.hasError) {
+                        return Center(child: Text('Error: ${snapshot.error}'));
+                      }
+                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                        return const Center(child: Text('No groups found'));
+                      }
+
+                      final groupDocs = snapshot.data!.docs;
+                      if (_filteredGroups.isEmpty) {
+                        _filteredGroups = groupDocs.map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          data['id'] = doc.id;
+                          return data;
+                        }).toList();
+                      }
+
+                      final filteredGroups = _searchQuery.isEmpty
+                          ? _filteredGroups
+                          : _filteredGroups.where((group) {
+                        final groupNameLower = group['groupName'].toString().toLowerCase();
+                        final queryLower = _searchQuery.toLowerCase();
+                        return groupNameLower.contains(queryLower);
+                      }).toList();
+
+                      return ListView.builder(
+                        itemCount: filteredGroups.length,
+                        itemBuilder: (context, index) {
+                          final group = filteredGroups[index];
+
+                          return StreamBuilder<QuerySnapshot>(
+                            stream: _firestore
+                                .collection('groups')
+                                .doc(group['id'])
+                                .collection('messages')
+                                .orderBy('timestamp', descending: true)
+                                .limit(1)
+                                .snapshots(),
+                            builder: (context, messageSnapshot) {
+                              String latestMessage = 'No messages yet';
+                              String senderName = '';
+                              String messageTime = '';
+                              if (messageSnapshot.connectionState == ConnectionState.waiting) {
+                                return const Center(child: CircularProgressIndicator());
+                              }
+                              if (messageSnapshot.hasData && messageSnapshot.data!.docs.isNotEmpty) {
+                                final messageDoc = messageSnapshot.data!.docs.first;
+                                latestMessage = messageDoc['text'] ?? 'No message text';
+                                senderName = (messageDoc['senderName'] == currentUserName) ? 'You: ' : '${messageDoc['senderName']}: ';
+                                final timestamp = (messageDoc['timestamp'] as Timestamp?)?.toDate();
+                                if (timestamp != null) {
+                                  messageTime = _formatTimestamp(timestamp);
+                                }
+                              }
+
+                              return Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.grey.withOpacity(0.2),
+                                        spreadRadius: 2,
+                                        blurRadius: 5,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                    ],
+                                  ),
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.all(12),
+                                    leading: CircleAvatar(
+                                      backgroundColor: Colors.grey[600],
+                                      child: Text(
+                                        (group['groupName'] ?? 'G')[0].toUpperCase(),
+                                        style: const TextStyle(color: Colors.white),
+                                      ),
+                                    ),
+                                    title: Text(
+                                      group['groupName'] ?? 'Unknown Group',
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const SizedBox(height: 15,),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              '$senderName',
+                                              style: const TextStyle(color: Colors.grey),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            Expanded(
+                                              child: Text(
+                                                latestMessage,
+                                                style: const TextStyle(color: Colors.grey),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            Text(
+                                              messageTime,
+                                              style: const TextStyle(color: Colors.grey, fontSize: 12),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    onTap: () => _navigateToGroupChatScreen(
+                                      group['id'] ?? 'Unknown Group',
+                                      group['groupName'] ?? 'Unknown Group',
+                                    ),
+                                  ),
+                                );
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
               ],
             ),
           ],
+        ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const CreateGroup()),
+            );
+          },
+          child: const Icon(Icons.group_add),
         ),
       ),
     );

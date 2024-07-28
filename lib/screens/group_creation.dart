@@ -30,7 +30,7 @@ class _CreateGroupState extends State<CreateGroup> {
   @override
   void dispose() {
     _groupNameController.dispose();
-    _memberNameController.removeListener(_filterUsers); // Remove listener
+    _memberNameController.removeListener(_filterUsers);
     _memberNameController.dispose();
     super.dispose();
   }
@@ -80,8 +80,8 @@ class _CreateGroupState extends State<CreateGroup> {
   void _addUserToGroup(Map<String, dynamic> user) {
     setState(() {
       _groupUsers.add(user);
-      _filteredUsers.remove(user); // Optionally remove from filtered list
-      _memberNameController.clear(); // Clear text field
+      _filteredUsers.remove(user);
+      _memberNameController.clear();
     });
   }
 

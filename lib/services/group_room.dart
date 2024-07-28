@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -188,6 +190,107 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     }
   }
 
+  Future<void> _editMessage(String messageId, String newText) async {
+    try {
+      await _firestore.collection('groups').doc(widget.groupid).collection('messages').doc(messageId).update({
+        'text': newText,
+      });
+    } catch (e) {
+      print('Error editing message: $e');
+    }
+  }
+
+  Future<void> _deleteMessage(String messageId) async {
+    try {
+      await _firestore.collection('chats').doc(widget.groupid).collection('messages').doc(messageId).delete();
+    } catch (e) {
+      print('Error deleting message: $e');
+    }
+  }
+
+  void _showMessageOptions(String messageId, String currentText) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) =>
+          Stack(
+            children: [
+              BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+                child: Container(
+                  color: Colors.black.withOpacity(
+                      0),
+                ),
+              ),
+              // The bottom sheet content
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(16.0)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.edit),
+                      title: const Text('Edit'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showEditMessageDialog(messageId, currentText);
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.delete),
+                      title: const Text('Delete'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _deleteMessage(messageId);
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.cancel),
+                      title: const Text('Cancel'),
+                      onTap: () {
+                        Navigator.pop(context);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+    );
+  }
+
+  void _showEditMessageDialog(String messageId, String currentText) {
+    _messageController.text = currentText;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Message'),
+        content: TextField(
+          controller: _messageController,
+          decoration: const InputDecoration(
+            hintText: 'Enter new message...',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _editMessage(messageId, _messageController.text);
+            },
+            child: const Text('Save'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
 
   String _formatTimestamp(Timestamp? timestamp) {
     if (timestamp == null) {
@@ -201,6 +304,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        centerTitle: true,
+        backgroundColor: Colors.green[700],
         title: StreamBuilder<DocumentSnapshot>(
           stream: _firestore.collection('groups').doc(widget.groupid).snapshots(),
           builder: (context, snapshot) {
@@ -217,7 +322,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             return Text(groupName);
           },
         ),
-        centerTitle: true,
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) async {
@@ -250,7 +354,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             icon: const Icon(Icons.more_vert_outlined),
           ),
         ],
-        backgroundColor: const Color(0xffDEDEDE),
       ),
       body: Column(
         children: [
@@ -274,60 +377,96 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                     final message = messages[index];
                     final isCurrentUser = message['senderId'] == _auth.currentUser!.uid;
                     final messageAlignment = isCurrentUser ? Alignment.centerRight : Alignment.centerLeft;
-                    final messageColor = isCurrentUser ? Colors.green : Colors.grey.shade300;
+                    final messageColor = isCurrentUser ? Colors.green[100] : Colors.white;
                     final timestamp = message['timestamp'] as Timestamp?;
                     final formattedTime = _formatTimestamp(timestamp);
                     final senderName = message['senderName'] ?? 'Unknown';
-                    return Container(
-                      alignment: messageAlignment,
-                      padding: const EdgeInsets.all(8.0),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (!isCurrentUser)
-                            CircleAvatar(
-                              backgroundColor: Colors.grey,
-                              child: Text(senderName[0]),
-                            ),
-                          const SizedBox(width: 8.0),
-                          Flexible(
-                            child: Column(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 15.0),
-                                  decoration: BoxDecoration(
-                                    color: messageColor,
-                                    borderRadius: BorderRadius.circular(10.0),
+                    final messageId = message.id;
+                    final currentText = message['text'] ?? '';
+
+                    return GestureDetector(
+                      onLongPress: () => _showMessageOptions(messageId, currentText),
+                      child: Container(
+                        alignment: messageAlignment,
+                        padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
+                        child: Row(
+                          mainAxisAlignment: isCurrentUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+                          children: [
+                            if (!isCurrentUser)
+                              CircleAvatar(
+                                radius: 16.0,
+                                backgroundColor: Colors.grey[300],
+                                child: Text(senderName[0], style: const TextStyle(color: Colors.black87)),
+                              ),
+                            const SizedBox(width: 8.0),
+                            Flexible(
+                              child: Container(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 280.0, // Fixed width
+                                ),
+                                padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 14.0),
+                                decoration: BoxDecoration(
+                                  color: messageColor,
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: Radius.circular(isCurrentUser ? 12.0 : 0),
+                                    topRight: Radius.circular(isCurrentUser ? 0 : 12.0),
+                                    bottomLeft: const Radius.circular(12.0),
+                                    bottomRight: const Radius.circular(12.0),
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment: isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                    children: [
-                                      if (!isCurrentUser)
-                                        Text(
-                                          senderName,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: isCurrentUser ? Colors.white : Colors.black,
-                                          ),
-                                        ),
-                                      const SizedBox(height: 5.0),
-                                      Text(message['text']),
-                                      const SizedBox(height: 5.0),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.1),
+                                      spreadRadius: 1,
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                  children: [
+                                    if (!isCurrentUser)
                                       Text(
-                                        formattedTime,
-                                        style: TextStyle(
-                                          fontSize: 10.0,
-                                          color: isCurrentUser ? Colors.white : Colors.black,
+                                        senderName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.black87,
                                         ),
                                       ),
-                                    ],
-                                  ),
+                                    Text(
+                                      currentText,
+                                      softWrap: true,
+                                      style: TextStyle(
+                                        fontSize: 16.0,
+                                        color: isCurrentUser ? Colors.black87 : Colors.black87,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 5.0),
+                                    Row(
+                                      mainAxisAlignment: isCurrentUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          formattedTime,
+                                          style: const TextStyle(
+                                            fontSize: 12.0,
+                                            color: Colors.black54,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4.0),
+                                        if (isCurrentUser)
+                                          const Icon(
+                                            Icons.check,
+                                            size: 14.0,
+                                            color: Colors.black54,
+                                          ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -339,24 +478,27 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             padding: const EdgeInsets.all(8.0),
             child: Row(
               children: [
+                // IconButton(
+                //   icon: const Icon(Icons.image),
+                  // onPressed: getImage,
+                // ),
                 Expanded(
                   child: TextField(
                     controller: _messageController,
                     decoration: InputDecoration(
-                      hintText: 'Enter your message...',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        onPressed: () {
-                          // getImage();
-                        },
-                        icon: const Icon(Icons.photo),
+                      hintText: 'Type a message...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30.0),
+                        borderSide: BorderSide.none,
                       ),
+                      filled: true,
+                      fillColor: Colors.grey[200],
                     ),
+                    onSubmitted: (_) => _sendMessage(),
                   ),
                 ),
-                const SizedBox(width: 8.0),
                 IconButton(
-                  icon: const Icon(Icons.send),
+                  icon: const Icon(Icons.send, color: Colors.green),
                   onPressed: _sendMessage,
                 ),
               ],
@@ -367,3 +509,4 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     );
   }
 }
+
